@@ -240,16 +240,28 @@ RethinkDB.prototype.isActual = function(cb) {
 };
 
 RethinkDB.prototype.create = function (model, data, callback) {
-    if (data.id === null || data.id === undefined) {
-        delete data.id;
+    var idValue = this.getIdValue(model, data)
+    var idName = this.idName(model)
+
+    if (idValue === null || idValue === undefined) {
+        delete data[idName];
+    } else {
+        data.id = idValue; // Set it to _id
+        idName !== 'id' && delete data[idName];
     }
 
     this.save(model, data, callback, true);
 };
 
 RethinkDB.prototype.updateOrCreate = function (model, data, callback) {
-    if (data.id === null || data.id === undefined) {
-        delete data.id;
+    var idValue = this.getIdValue(model, data)
+    var idName = this.idName(model)
+
+    if (idValue === null || idValue === undefined) {
+        delete data[idName];
+    } else {
+        data.id = idValue; // Set it to _id
+        idName !== 'id' && delete data[idName];
     }
 
     this.save(model, data, callback, true, true);
@@ -266,6 +278,9 @@ RethinkDB.prototype.save = function (model, data, callback, strict, returnObject
         return
     }
 
+    var idValue = _this.getIdValue(model, data)
+    var idName = _this.idName(model)
+
     if (strict == undefined)
         strict = false
 
@@ -276,19 +291,29 @@ RethinkDB.prototype.save = function (model, data, callback, strict, returnObject
 
     r.db(_this.database).table(model).insert(data, { conflict: strict ? "error": "update", returnChanges: true }).run(client, function (err, m) {
         err = err || m.first_error && new Error(m.first_error);
-        if (err)
+        if (err) {
             callback && callback(err)
+        }
         else {
             var info = {}
-            var id = model.id
+            var object = null
 
-            //if (m.inserted > 0) info.isNewInstance = true
-            if (m.changes && m.changes.length > 0) id = m.changes[0].new_val.id
+            if (m.inserted > 0) {
+                // create
+                info.isNewInstance = true
+                idValue = m.changes[0].new_val.id
+            }
+            if (m.changes && m.changes.length > 0) {
+                // update
+                object = m.changes[0].new_val
+                _this.setIdValue(model, object, idValue)
+                idName !== 'id' && delete object._id
+            }
 
             if (returnObject && m.changes && m.changes.length > 0) {
-                callback && callback(null, m.changes[0].new_val, info)
+                callback && callback(null, object, info)
             } else {                
-                callback && callback(null, id, info);
+                callback && callback(null, idValue, info);
             }
         }
     });
@@ -379,8 +404,17 @@ RethinkDB.prototype.all = function all(model, filter, options, callback) {
 
     var promise = r.db(_this.database).table(model);
 
+    var idName = this.idName(model)
+
     if (filter.where) {
-        promise = buildWhere(_this, model, filter.where, promise)//_processWhere(_this, model, filter.where, promise);
+        if (filter.where[idName]) {
+            var id = filter.where[idName];
+            delete filter.where[idName];
+            filter.where.id = id;
+        }
+        promise = buildWhere(_this, model, filter.where, promise)
+        if (promise === null)
+            return callback && callback(null, [])
     }
 
     if (filter.order) {
@@ -460,12 +494,15 @@ RethinkDB.prototype.destroyAll = function destroyAll(model, where, callback) {
     if (where !== undefined)
         promise = buildWhere(_this, model, where, promise)
 
+    if (promise === null)
+        return callback(null, { count: 0 })
+
     promise.delete().run(client, function(error, result) {
         callback(error, { count: result ? result.deleted : null});
     });
 };
 
-RethinkDB.prototype.count = function count(model, where, callback) {
+RethinkDB.prototype.count = function count(model, where, options, callback) {
     var _this = this;
     var client = this.db;
 
@@ -481,6 +518,9 @@ RethinkDB.prototype.count = function count(model, where, callback) {
 
     if (where && typeof where === "object")
         promise = buildWhere(_this, model, where, promise);
+
+    if (promise === null)
+        return callback(null, 0)
 
     promise.count().run(client, function (err, count) {
         callback(err, count);
@@ -499,12 +539,12 @@ RethinkDB.prototype.updateAttributes = function updateAttrs(model, id, data, cb)
         return
     }
 
-    data.id = id;
+    //data.id = id;
     Object.keys(data).forEach(function (key) {
         if (data[key] === undefined)
             data[key] = null;
     });
-    r.db(_this.database).table(model).update(data).run(client, function(err, object) {
+    r.db(_this.database).table(model).get(id).update(data).run(client, function(err, object) {
         cb(err, data);
     });
 };
@@ -524,6 +564,10 @@ RethinkDB.prototype.update = RethinkDB.prototype.updateAll = function update(mod
     var promise = r.db(_this.database).table(model)
     if (where !== undefined)
         promise = buildWhere(_this, model, where, promise)
+
+    if (promise === null)
+        return callback && callback(null, { count: 0 })
+
     promise.update(data, { returnChanges: true }).run(client, function(error, result) {
         callback(error, { count: result ? result.replaced : null });
     });
@@ -597,15 +641,19 @@ var operators = {
         return r.row(key).gt(value[0]).and(r.row(key).lt(value[1]))
     },
     "gt": function(key, value) {
+        if (value === null || value === undefined) return null
         return r.row(key).gt(value)
     },
     "lt": function(key, value) {
+        if (value === null || value === undefined) return null
         return r.row(key).lt(value)
     },
     "gte": function(key, value) {
+        if (value === null || value === undefined) return null
         return r.row(key).ge(value)
     },
     "lte": function(key, value) {
+        if (value === null || value === undefined) return null
         return r.row(key).le(value)
     },
     "inq": function(key, value) {
@@ -685,22 +733,28 @@ function buildFilter(where) {
 
     })
 
+    if (_.findIndex(filter, function(item) { return item === null }) >= 0)
+        return null
+
+    if (filter.length == 0)
+        return undefined
+
     return _.reduce(filter, function(s, f) {
         return s.and(f)
     })
 }
 
 function buildWhere(self, model, where, promise) {
-
     if (where === null || (typeof where !== 'object')) {
         return promise;
     }
 
     var query = buildFilter(where)
 
-    if (query)
-        return promise.filter(query)
-    else
+    if (query === undefined)
         return promise
-
+    else if (query === null)
+        return null
+    else
+        return promise.filter(query)
 }

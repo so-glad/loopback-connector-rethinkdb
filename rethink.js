@@ -264,7 +264,7 @@ RethinkDB.prototype.updateOrCreate = function (model, data, callback) {
         idName !== 'id' && delete data[idName];
     }
 
-    this.save(model, data, callback, true, true);
+    this.save(model, data, callback, false, true);
 }
 
 RethinkDB.prototype.save = function (model, data, callback, strict, returnObject) {
@@ -347,28 +347,29 @@ RethinkDB.prototype.find = function find(model, id, options, callback) {
         return
     }
 
-    var done = function (client) {
+    var idName = this.idName(model)
 
-        return function finished(err, data) {
+    var promise = r.db(_this.database).table(model)
 
-            // Acquire the keys for this model
-            _keys = _this._models[model].properties;
+    if (idName == "id")
+        promise = promise.get(id)
+    else
+        promise = promise.filter({ idName: id })
 
-            if (data) {
+    var rQuery = promise.toString()
+    
+    promise.run(client, function(error, data) {
+        // Acquire the keys for this model
+        _keys = _this._models[model].properties;
 
-                // Pass to expansion helper
-                _expandResult(data, _keys);
-            }
+        if (data) {
+            // Pass to expansion helper
+            _expandResult(data, _keys);
+        }
 
-            // Done
-            callback(err, data);
-        };
-    };
-
-    r.db(_this.database)
-        .table(model)
-        .get(id)
-        .run(client, done(client));
+        // Done
+        callback && callback(error, data, rQuery);
+    });
 };
 
 RethinkDB.prototype.destroy = function destroy(model, id, callback) {
@@ -406,17 +407,6 @@ RethinkDB.prototype.all = function all(model, filter, options, callback) {
 
     var idName = this.idName(model)
 
-    if (filter.where) {
-        if (filter.where[idName]) {
-            var id = filter.where[idName];
-            delete filter.where[idName];
-            filter.where.id = id;
-        }
-        promise = buildWhere(_this, model, filter.where, promise)
-        if (promise === null)
-            return callback && callback(null, [])
-    }
-
     if (filter.order) {
         var keys = filter.order;
         if (typeof keys === 'string') {
@@ -433,7 +423,18 @@ RethinkDB.prototype.all = function all(model, filter, options, callback) {
         });
     } else {
         // default sort by id
-        promise = promise.orderBy(r.asc("id"));
+        promise = promise.orderBy({ "index": r.asc("id") });
+    }
+
+    if (filter.where) {
+        if (filter.where[idName]) {
+            var id = filter.where[idName];
+            delete filter.where[idName];
+            filter.where.id = id;
+        }
+        promise = buildWhere(_this, model, filter.where, promise)
+        if (promise === null)
+            return callback && callback(null, [])
     }
 
     if (filter.skip) {
@@ -441,11 +442,14 @@ RethinkDB.prototype.all = function all(model, filter, options, callback) {
     } else if (filter.offset) {
         promise = promise.skip(filter.offset);
     }
+
     if (filter.limit) {
         promise = promise.limit(filter.limit);
     }
 
-    //console.log(promise.toString())
+    var rQuery = promise.toString()
+
+    //console.log(rQuery)
 
     promise.run(client, function(error, cursor) {
 
@@ -468,7 +472,7 @@ RethinkDB.prototype.all = function all(model, filter, options, callback) {
             if (filter && filter.include && filter.include.length > 0) {
                 _model.include(data, filter.include, options, callback);
             } else {
-                callback && callback(null, data);
+                callback && callback(null, data, rQuery);
             }
         });
     });

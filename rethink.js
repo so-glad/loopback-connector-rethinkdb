@@ -78,7 +78,7 @@ RethinkDB.prototype.connect = function(cb) {
             cb && cb(null, self.db);
         });
     } else {
-        r.connect({host: s.host, port: s.port}, function (error, client) {
+        r.connect({host: s.host, port: s.port, authKey: s.password}, function (error, client) {
             self.db = client
             cb && cb(error, client)
         });
@@ -141,7 +141,7 @@ RethinkDB.prototype.autoupdate = function(models, done) {
                 done(e);
             });
         });
-        
+
     });
 
     function createIndices(cb, model, client) {
@@ -312,7 +312,7 @@ RethinkDB.prototype.save = function (model, data, callback, strict, returnObject
 
             if (returnObject && m.changes && m.changes.length > 0) {
                 callback && callback(null, object, info)
-            } else {                
+            } else {
                 callback && callback(null, idValue, info);
             }
         }
@@ -357,7 +357,7 @@ RethinkDB.prototype.find = function find(model, id, options, callback) {
         promise = promise.filter({ idName: id })
 
     var rQuery = promise.toString()
-    
+
     promise.run(client, function(error, data) {
         // Acquire the keys for this model
         _keys = _this._models[model].properties;
@@ -733,7 +733,7 @@ function buildFilter(where) {
                 // k is field equality
                 filter.push(r.row(k).eq(condition))
             }
-        }    
+        }
 
     })
 

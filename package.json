@@ -1,5 +1,5 @@
 {
-  "name": "loopback-connector-rethinkdb",
+  "name": "@soglad/loopback-connector-rethinkdb",
   "version": "1.0.0",
   "description": "RethinkDB connector for Loopback.io",
   "main": "index.js",
@@ -22,7 +22,7 @@
     "semicov": "^0.1.1-2",
     "should": "^4.6.1"
   },
-  "repository": "http://github.com/fuwaneko/loopback-connector-rethinkdb",
-  "author": "Dmitry Gorbunov <atskiisotona@gmail.com>",
+  "repository": "https://github.com/so-glad/loopback-connector-rethinkdb",
+  "author": "Cartoon Zhang <m@glad.so>",
   "license": "MIT"
 }
